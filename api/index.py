@@ -1,4 +1,5 @@
 import os
+import re
 from flask import Flask, request, jsonify, Response
 import json
 import aiohttp
@@ -14,11 +15,28 @@ app = Flask(__name__)
 # # © Developer = WOODcraft 
 # ========================
 # Configuration
-COOKIES_FILE = 'cookies.json'
 REQUEST_TIMEOUT = 30
 MAX_RETRIES = 5
 RETRY_DELAY = 2
 PORT = 3000
+
+# Supported domains list
+SUPPORTED_DOMAINS = [
+    "terabox.com",
+    "1024terabox.com",
+    "teraboxapp.com",
+    "teraboxlink.com",
+    "terasharelink.com",
+    "terafileshare.com",
+    "www.1024tera.com",
+    "1024tera.com",
+    "1024tera.cn",
+    "teraboxdrive.com",
+    "dubox.com"
+]
+
+# Regex pattern for Terabox URLs
+TERABOX_URL_REGEX = r'^https:\/\/(www\.)?(terabox\.com|1024terabox\.com|teraboxapp\.com|teraboxlink\.com|terasharelink\.com|terafileshare\.com|1024tera\.com|1024tera\.cn|teraboxdrive\.com|dubox\.com)\/(s|sharing\/link)\/[A-Za-z0-9]+'
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +44,33 @@ logger = logging.getLogger(__name__)
 
 # Initialize user agent rotator
 ua = UserAgent()
+
+# Predefined cookies and headers
+COOKIES = {
+    'ndut_fmt': '082E0D57C65BDC31F6FF293F5D23164958B85D6952CCB6ED5D8A3870CB302BE7',
+    'ndus': 'Y-wWXKyteHuigAhC03Fr4bbee-QguZ4JC6UAdqap',
+    '__bid_n': '196ce76f980a5dfe624207',
+    '__stripe_mid': '148f0bd1-59b1-4d4d-8034-6275095fc06f99e0e6',
+    '__stripe_sid': '7b425795-b445-47da-b9db-5f12ec8c67bf085e26',
+    'browserid': 'veWFJBJ9hgVgY0eI9S7yzv66aE28f3als3qUXadSjEuICKF1WWBh4inG3KAWJsAYMkAFpH2FuNUum87q',
+    'csrfToken': 'wlv_WNcWCjBtbNQDrHSnut2h',
+    'lang': 'en',
+    'PANWEB': '1'
+}
+
+
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Priority': 'u=0, i',
+}
 
 def get_random_headers():
     return {
@@ -44,17 +89,22 @@ def get_random_headers():
     }
 
 def load_cookies():
-    if os.path.exists(COOKIES_FILE):
-        try:
-            with open(COOKIES_FILE, 'r') as f:
-                cookies = json.load(f)
-                logger.info(f"Loaded {len(cookies)} cookies from {COOKIES_FILE}")
-                return cookies
-        except Exception as e:
-            logger.error(f"Cookie load error: {str(e)}")
-            return {}
-    logger.warning(f"No cookies file found at {COOKIES_FILE}")
-    return {}
+    """Return the predefined cookies"""
+    return COOKIES
+
+def validate_terabox_url(url):
+    """Validate if URL matches Terabox pattern"""
+    try:
+        # Check regex pattern
+        if not re.match(TERABOX_URL_REGEX, url):
+            return False
+        
+        # Check against supported domains
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        return any(supported_domain in domain for supported_domain in SUPPORTED_DOMAINS)
+    except Exception:
+        return False
 
 def find_between(string, start, end):
     try:
@@ -103,9 +153,6 @@ async def make_request(session, url, method='GET', headers=None, params=None, al
 async def fetch_download_link_async(url):
     try:
         cookies = load_cookies()
-        if not cookies:
-            raise Exception("No valid cookies found. Please update cookies.json")
-        
         logger.info(f"Using cookies: {list(cookies.keys())}")
         
         async with aiohttp.ClientSession(cookies=cookies) as session:
@@ -251,6 +298,15 @@ async def api_handler():
                 "usage": "/api?url=YOUR_TERABOX_SHARE_URL"
             }), 400
         
+        # Validate URL
+        if not validate_terabox_url(url):
+            return jsonify({
+                "status": "error",
+                "message": "Invalid Terabox URL format",
+                "supported_domains": SUPPORTED_DOMAINS,
+                "url": url
+            }), 400
+        
         logger.info(f"Processing URL: {url}")
         files = await fetch_download_link_async(url)
         
@@ -281,7 +337,7 @@ async def api_handler():
                 "files": results,
                 "processing_time": f"{time.time() - start_time:.2f} seconds",
                 "file_count": len(results),
-                "cookie_status": "valid" if load_cookies() else "invalid"
+                "cookie_status": "valid"
             })
     except Exception as e:
         logger.error(f"API error: {str(e)}", exc_info=True)
@@ -299,7 +355,8 @@ def home():
         "status": "Running ✅",
         "developer": "@Farooq_is_king",
         "channel": "@Opleech_WD",
-        "cookie_status": "valid" if load_cookies() else "invalid",
+        "cookie_status": "valid",
+        "supported_domains": SUPPORTED_DOMAINS,
         "endpoints": {
             "/api": "GET with ?url=TERABOX_SHARE_URL parameter",
             "/health": "Service health check",
@@ -314,27 +371,24 @@ def health_check():
         "status": "healthy",
         "developer": "@Farooq_is_king",
         "channel": "@Opleech_WD",
-        "cookie_count": len(load_cookies())
+        "cookie_count": len(COOKIES),
+        "supported_domains": SUPPORTED_DOMAINS
     }
     return Response(json.dumps(data, ensure_ascii=False), mimetype='application/json')
 
 @app.route('/cookie-status')
 def cookie_check():
-    cookies = load_cookies()
     status = {
-        "status": "valid" if cookies else "invalid",
-        "cookie_count": len(cookies),
-        "required_cookies": [
-            "ndut_fmt", "ndus", "__bid_n", 
-            "__stripe_mid", "__stripe_sid", 
-            "browserid", "csrfToken"
-        ],
-        "present_cookies": list(cookies.keys())
+        "status": "valid",
+        "cookie_count": len(COOKIES),
+        "required_cookies": list(COOKIES.keys()),
+        "supported_domains": SUPPORTED_DOMAINS
     }
     return Response(json.dumps(status, ensure_ascii=False), mimetype='application/json')
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 3000))
     logger.info(f"Starting server on port {port}")
-    logger.info(f"Cookie status: {'valid' if load_cookies() else 'INVALID'}")
+    logger.info(f"Cookie status: valid")
+    logger.info(f"Supported domains: {', '.join(SUPPORTED_DOMAINS)}")
     app.run(host='0.0.0.0', port=port, threaded=True)
