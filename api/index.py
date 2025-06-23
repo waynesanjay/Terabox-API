@@ -41,15 +41,6 @@ TERABOX_URL_REGEX = r'^https:\/\/(www\.)?(terabox\.com|1024terabox\.com|teraboxa
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# User agent list
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-]
-
 # TESTED COOKIES (Updated 2024-06-23)
 COOKIES = {
     'ndut_fmt': '082E0D57C65BDC31F6FF293F5D23164958B85D6952CCB6ED5D8A3870CB302BE7',
@@ -61,25 +52,26 @@ COOKIES = {
     'csrfToken': 'wlv_WNcWCjBtbNQDrHSnut2h',
     'lang': 'en',
     'PANWEB': '1',
-    'ab_sr': '1.0.1_NjA1ZWE3ODRiYjJiYjZkYjQzYjU4NmZkZGVmOWYxNDg4MjU3ZDZmMTg0Nzg4MWFlNzQzZDMxZWExNmNjYzliMGFlYjIyNWUzYzZiODQ1Nzg3NWM0MzIzNWNiYTlkYTRjZTc0ZTc5ODRkNzg4NDhiMTljOGRiY2I4MzY4ZmYyNTU5ZDE5NDczZmY4NjJhMDgyNjRkZDI2MGY5M2Q1YzIyMg=='
+    'ab_sr': '1.0.1_NjA1ZWE3ODRiYjJiYjZkYjQzYjU4NmZkZGVmOWYxNDg4MjU3ZDZmMTg0Nzg4MWFlNzQzZDMxZWExNmNjYzliMGFlYjIyNWUzYzZiODQ1Nzg3NWM0MzIzNWNiYTlkYTRjZTc0ZTc5ODRkNzg4NDhiMTljOGRiY2I4MzY4ZmYyNTU5ZDE5NDczZmY4NjJhMDgyNjRkZDI2MGY5M2Q5YzIyMg=='
+}
+
+# FIXED HEADERS AS REQUESTED
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Priority': 'u=0, i',
 }
 
 def get_headers():
-    return {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Priority': 'u=0, i',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'max-age=0',
-        'Referer': 'https://www.terabox.com/'
-    }
+    """Return fixed headers as requested"""
+    return HEADERS
 
 def validate_terabox_url(url):
     """Validate Terabox URL format"""
@@ -130,45 +122,69 @@ def make_request(url, method='GET', headers=None, params=None, allow_redirects=T
             
     raise Exception(f"Max retries exceeded. Last error: {str(last_exception)}")
 
+def find_between(string, start, end):
+    """Extract substring between two delimiters"""
+    try:
+        start_index = string.find(start) + len(start)
+        end_index = string.find(end, start_index)
+        return string[start_index:end_index]
+    except Exception as e:
+        logger.error(f"find_between error: {str(e)}")
+        return None
+
 def extract_tokens(html):
     """Extract jsToken and log_id from HTML content"""
-    # Multiple extraction methods
-    js_token = re.search(r'fn\(["\']([a-zA-Z0-9]+)["\']\)', html)
-    if js_token:
-        js_token = js_token.group(1)
-    else:
-        js_token = re.search(r'jsToken\s*=\s*["\']([a-zA-Z0-9]+)["\']', html)
-        js_token = js_token.group(1) if js_token else None
-
-    log_id = re.search(r'dp-logid=([a-zA-Z0-9]+)', html)
-    if log_id:
-        log_id = log_id.group(1)
-    else:
-        log_id = re.search(r'dplogid\s*=\s*["\']([a-zA-Z0-9]+)["\']', html)
-        log_id = log_id.group(1) if log_id else None
-
-    if not js_token or not log_id:
-        raise Exception("Token extraction failed")
+    # Improved token extraction with regex as requested
+    token_match = re.search(r'fn\(["\'](.*?)["\']\)', html)
+    if not token_match:
+        token_match = re.search(r'fn%28%22(.*?)%22%29', html)
+    
+    if not token_match:
+        logger.error("Token extraction failed")
+        raise Exception("Could not extract jsToken")
+    
+    js_token = token_match.group(1)
+    
+    # Improved log_id extraction
+    log_id_match = re.search(r'dp-logid=([^&\'"]+)', html)
+    if not log_id_match:
+        logger.error("Log ID extraction failed")
+        raise Exception("Could not extract log_id")
+    
+    log_id = log_id_match.group(1)
 
     return js_token, log_id
 
-def get_surl(url):
+def get_surl(response_url):
     """Extract surl parameter from URL"""
-    parsed = urlparse(url)
-    query = parse_qs(parsed.query)
-    surl = query.get('surl', [None])[0]
-    
-    if not surl:
-        path_parts = parsed.path.split('/')
+    try:
+        # First try to extract from URL parameters
+        surl = find_between(response_url, 'surl=', '&')
+        if surl:
+            return surl
+        
+        # Then try to extract from path
+        parsed = urlparse(response_url)
+        if '/s/' in parsed.path:
+            surl = parsed.path.split('/s/')[1].split('/')[0]
+            return surl
+        
+        # Fallback to path parts
+        path_parts = parsed.path.strip('/').split('/')
         if 's' in path_parts:
             s_index = path_parts.index('s')
             if len(path_parts) > s_index + 1:
-                surl = path_parts[s_index + 1]
-    
-    if not surl:
+                return path_parts[s_index + 1]
+        
+        # Final fallback to regex extraction
+        surl_match = re.search(r'/(s|sharing/link)/([A-Za-z0-9_\-]+)', response_url)
+        if surl_match:
+            return surl_match.group(2)
+        
         raise Exception("Could not extract surl from URL")
-    
-    return surl
+    except Exception as e:
+        logger.error(f"surl extraction error: {str(e)}")
+        raise
 
 def get_direct_link(url, cookies):
     """Resolve direct download link by following redirects"""
@@ -215,61 +231,51 @@ def process_terabox_url(url):
     }
     
     # Step 5: Fetch file list
-    file_list = []
-    for version in [4, 3, 2]:  # Try multiple API versions
-        try:
-            params['ver'] = version
-            response2 = make_request(
-                'https://www.1024tera.com/share/list',
-                params=params,
-                cookies=COOKIES
-            )
-            response_data2 = response2.json()
-            
-            # Check if valid file list exists
-            if 'list' not in response_data2 or not response_data2['list']:
-                logger.warning(f"No files found in API response (v{version})")
-                continue
-                
-            file_list = response_data2['list']
-            logger.info(f"Found {len(file_list)} files using API v{version}")
-            break
-        except Exception as e:
-            logger.warning(f"API request failed (v{version}): {str(e)}")
-            time.sleep(1)
+    response2 = make_request(
+        'https://www.1024tera.com/share/list',
+        params=params,
+        cookies=COOKIES
+    )
+    response_data2 = response2.json()
     
-    if not file_list:
-        raise Exception("All API versions failed to return valid file list")
+    # Check if valid file list exists
+    if 'list' not in response_data2 or not response_data2['list']:
+        logger.error("No files found in API response")
+        raise Exception("No files found in shared link")
     
-    # Step 6: Handle directories
+    file_list = response_data2['list']
+    logger.info(f"Found {len(file_list)} files")
+    
+    # Step 6: Handle directories (folder handling as requested)
     if file_list and file_list[0].get('isdir') == "1":
-        dir_params = params.copy()
-        dir_params.update({
+        folder_params = params.copy()
+        folder_params.update({
             'dir': file_list[0]['path'],
             'order': 'asc',
-            'by': 'name'
+            'by': 'name',
         })
-        dir_params.pop('desc', None)
-        dir_params.pop('root', None)
+        folder_params.pop('desc', None)
+        folder_params.pop('root', None)
         
-        # Fetch directory contents
-        for version in [4, 3, 2]:
-            try:
-                dir_params['ver'] = version
-                dir_response = make_request(
-                    'https://www.1024tera.com/share/list',
-                    params=dir_params,
-                    cookies=COOKIES
-                )
-                dir_data = dir_response.json()
-                
-                if 'list' in dir_data and dir_data['list']:
-                    file_list = dir_data['list']
-                    logger.info(f"Found {len(file_list)} files in directory")
-                    break
-            except Exception as e:
-                logger.warning(f"Directory API request failed (v{version}): {str(e)}")
-                time.sleep(1)
+        # Fetch folder contents
+        folder_response = make_request(
+            'https://www.1024tera.com/share/list',
+            params=folder_params,
+            cookies=COOKIES
+        )
+        folder_data = folder_response.json()
+        
+        if 'list' not in folder_data or not folder_data['list']:
+            logger.error("No files found in folder")
+            raise Exception("No files found in directory")
+        
+        # Process all files in folder (skip sub-folders)
+        folder_contents = []
+        for item in folder_data['list']:
+            if item.get('isdir') != "1":
+                folder_contents.append(item)
+        file_list = folder_contents
+        logger.info(f"Found {len(file_list)} files in folder")
     
     # Step 7: Process files
     results = []
@@ -310,6 +316,18 @@ def process_terabox_url(url):
         })
     
     return results
+
+def extract_thumbnail_dimensions(url: str) -> str:
+    """Extract thumbnail dimensions from URL"""
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+    size_param = params.get('size', [''])[0]
+    
+    if size_param:
+        parts = size_param.replace('c', '').split('_u')
+        if len(parts) == 2:
+            return f"{parts[0]}x{parts[1]}"
+    return "original"
 
 @app.route('/api', methods=['GET'])
 def api_handler():
