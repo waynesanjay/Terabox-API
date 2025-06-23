@@ -1,12 +1,12 @@
+from flask import Flask, request, jsonify, Response
 import os
-import re
 import json
 import logging
+import re
+import random
 import time
 import requests
 from urllib.parse import urlparse, parse_qs
-from flask import Flask, request, jsonify
-from fake_useragent import UserAgent
 
 app = Flask(__name__)
 
@@ -41,8 +41,14 @@ TERABOX_URL_REGEX = r'^https:\/\/(www\.)?(terabox\.com|1024terabox\.com|teraboxa
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# User agent rotator
-ua = UserAgent()
+# User agent list
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+]
 
 # TESTED COOKIES (Updated 2024-06-23)
 COOKIES = {
@@ -59,8 +65,9 @@ COOKIES = {
 }
 
 def get_headers():
+    """Return random headers with rotating user agent"""
     return {
-        'User-Agent': ua.random,
+        'User-Agent': random.choice(USER_AGENTS),
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -75,12 +82,14 @@ def get_headers():
     }
 
 def validate_terabox_url(url):
+    """Validate Terabox URL format"""
     try:
         return re.match(TERABOX_URL_REGEX, url) is not None
     except Exception:
         return False
 
 def make_request(url, method='GET', headers=None, params=None, allow_redirects=True, cookies=None):
+    """Make HTTP request with retry logic"""
     session = requests.Session()
     retries = 0
     last_exception = None
@@ -122,6 +131,7 @@ def make_request(url, method='GET', headers=None, params=None, allow_redirects=T
     raise Exception(f"Max retries exceeded. Last error: {str(last_exception)}")
 
 def extract_tokens(html):
+    """Extract jsToken and log_id from HTML content"""
     # Multiple extraction methods
     js_token = re.search(r'fn\(["\']([a-zA-Z0-9]+)["\']\)', html)
     if js_token:
@@ -143,6 +153,7 @@ def extract_tokens(html):
     return js_token, log_id
 
 def get_surl(url):
+    """Extract surl parameter from URL"""
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
     surl = query.get('surl', [None])[0]
@@ -160,6 +171,7 @@ def get_surl(url):
     return surl
 
 def get_direct_link(url, cookies):
+    """Resolve direct download link by following redirects"""
     try:
         response = make_request(
             url,
@@ -174,6 +186,7 @@ def get_direct_link(url, cookies):
         return url
 
 def process_terabox_url(url):
+    """Process Terabox URL and return file information"""
     # Step 1: Fetch initial page
     response = make_request(url, cookies=COOKIES)
     html = response.text
@@ -201,7 +214,7 @@ def process_terabox_url(url):
         'root': '1'
     }
     
-    # Step 5: Fetch file list using your specific endpoint
+    # Step 5: Fetch file list
     file_list = []
     for version in [4, 3, 2]:  # Try multiple API versions
         try:
@@ -213,12 +226,13 @@ def process_terabox_url(url):
             )
             response_data2 = response2.json()
             
-            # Your specific check
+            # Check if valid file list exists
             if 'list' not in response_data2 or not response_data2['list']:
                 logger.warning(f"No files found in API response (v{version})")
                 continue
                 
             file_list = response_data2['list']
+            logger.info(f"Found {len(file_list)} files using API v{version}")
             break
         except Exception as e:
             logger.warning(f"API request failed (v{version}): {str(e)}")
@@ -238,7 +252,7 @@ def process_terabox_url(url):
         dir_params.pop('desc', None)
         dir_params.pop('root', None)
         
-        # Fetch directory contents using the same endpoint
+        # Fetch directory contents
         for version in [4, 3, 2]:
             try:
                 dir_params['ver'] = version
@@ -251,6 +265,7 @@ def process_terabox_url(url):
                 
                 if 'list' in dir_data and dir_data['list']:
                     file_list = dir_data['list']
+                    logger.info(f"Found {len(file_list)} files in directory")
                     break
             except Exception as e:
                 logger.warning(f"Directory API request failed (v{version}): {str(e)}")
@@ -298,6 +313,7 @@ def process_terabox_url(url):
 
 @app.route('/api', methods=['GET'])
 def api_handler():
+    """API endpoint for processing Terabox URLs"""
     start_time = time.time()
     url = request.args.get('url')
     if not url:
@@ -346,12 +362,14 @@ def api_handler():
 
 @app.route('/')
 def home():
+    """Home endpoint with service information"""
     return jsonify({
         "status": "API Running",
         "developer": "@Farooq_is_king",
         "usage": "/api?url=TERABOX_SHARE_URL",
         "supported_domains": SUPPORTED_DOMAINS,
-        "cookie_status": "valid"
+        "cookie_status": "valid",
+        "note": "Service optimized for Terabox link processing"
     })
 
 if __name__ == '__main__':
