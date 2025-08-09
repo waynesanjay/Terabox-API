@@ -80,11 +80,13 @@ def validate_terabox_url(url):
     except Exception:
         return False
 
-def make_request(url, method='GET', headers=None, params=None, allow_redirects=True, cookies=None):
-    """Make HTTP request with retry logic"""
+def make_request(url, method='GET', headers=None, params=None, allow_redirects=True, cookies=None, proxy_url=None):
+    """Make HTTP request with retry logic and optional proxy support"""
     session = requests.Session()
     retries = 0
     last_exception = None
+
+    proxies = {'http': proxy_url, 'https': proxy_url} if proxy_url else None
     
     while retries < MAX_RETRIES:
         try:
@@ -95,16 +97,16 @@ def make_request(url, method='GET', headers=None, params=None, allow_redirects=T
                 params=params,
                 cookies=cookies,
                 allow_redirects=allow_redirects,
-                timeout=REQUEST_TIMEOUT
+                timeout=REQUEST_TIMEOUT,
+                proxies=proxies  # Added proxies parameter here
             )
             
-            # Handle rate limiting
             if response.status_code in [403, 429, 503]:
                 logger.warning(f"Rate limited ({response.status_code}), retrying...")
                 time.sleep(RETRY_DELAY * (2 ** retries))
                 retries += 1
                 continue
-                
+            
             response.raise_for_status()
             return response
         except (requests.ConnectionError, requests.Timeout) as e:
@@ -204,7 +206,7 @@ def get_direct_link(url, cookies):
 def process_terabox_url(url):
     """Process Terabox URL and return file information"""
     # Step 1: Fetch initial page
-    response = make_request(url, cookies=COOKIES)
+    response = make_request(url, cookies=COOKIES, proxy_url=proxy_url)
     html = response.text
     
     # Step 2: Extract tokens
@@ -331,9 +333,11 @@ def extract_thumbnail_dimensions(url: str) -> str:
 
 @app.route('/api', methods=['GET'])
 def api_handler():
-    """API endpoint for processing Terabox URLs"""
+    """API endpoint for processing Terabox URLs with optional proxy support"""
     start_time = time.time()
     url = request.args.get('url')
+    proxy_url = request.args.get('proxy') # New line to get proxy URL
+
     if not url:
         return jsonify({
             "status": "error",
@@ -350,8 +354,10 @@ def api_handler():
         }), 400
     
     try:
-        logger.info(f"Processing URL: {url}")
-        files = process_terabox_url(url)
+        logger.info(f"Processing URL: {url} with proxy: {proxy_url}")
+        
+        # Now, call process_terabox_url with the proxy_url
+        files = process_terabox_url(url, proxy_url)
         
         if not files:
             return jsonify({
@@ -377,6 +383,7 @@ def api_handler():
             "url": url,
             "developer": "@Farooq_is_king"
         }), 500
+
 
 @app.route('/')
 def home():
